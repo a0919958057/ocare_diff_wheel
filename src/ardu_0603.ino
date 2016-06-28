@@ -4,7 +4,10 @@
 //#define SERIAL_DEBUG
 
 // Enable tracking line exception detect
-//#define TRACKING_EXCEPT_DETECT
+#define TRACKING_EXCEPT_DETECT
+
+// Enable init sensor DEBUG
+#define SERIAL_SENSOR_INIT_DEBUG
 
 // Serial Debug tunnle baud
 #define SERIAL_BAUD_            115200
@@ -194,11 +197,6 @@ float period_time = 0;
 int kp(100);
 void loop()
 {
-	if (Serial.available() > 0) {
-		char buffer[30];
-		Serial.readBytes(buffer, 30);
-		kp = atoi(buffer);
-	}
 
 	float error_rate(0);
 	float error_modify(0);
@@ -232,11 +230,11 @@ void loop()
 		error_rate = ERROR_RATE_MAX;
 
 	if (error < ERROR_MIN)
-		error_modify = ERROR_MIN + 0.01;
+		error_modify = ERROR_MIN ;
 	else if (error > ERROR_MAX)
-		error_modify = ERROR_MAX - 0.01;
+		error_modify = ERROR_MAX ;
 	else
-		error_modify = error - 0.01;
+		error_modify = error;
 
 	int output = error_modify * K_P;
 	//Serial.println(output);
@@ -288,9 +286,12 @@ void init_pin() {
 	digitalWrite(PIN_WHEEL_RIGHT_INPUT_1, HIGH);
 	digitalWrite(PIN_WHEEL_RIGHT_INPUT_2, HIGH);
 
+	/* INIT BUTTON PIN */
 	pinMode(BUTTON_WHITE_INIT, INPUT);
 	pinMode(BUTTON_BLACK_INIT, INPUT);
 
+
+	/* STAT SIGNAL LED PIN */
 	pinMode(LED_RED, OUTPUT);
 	pinMode(LED_GREEN, OUTPUT);
 
@@ -309,7 +310,7 @@ float get_error() {
 
 float get_sensor_data() {
 	for (int i = 0; i < SENSOR_COUNT; i++) {
-		int sensor_read = analogRead(i + 1);
+		int sensor_read = analogRead(i + SENSOR_START_PIN);
 
 		// Term To max and min
 		if (sensor_max_limit[i] < sensor_read)
@@ -390,24 +391,24 @@ void doSensorMaxInit() {
 		}
 	}
 
-#ifdef SERIAL_DEBUG
+#ifdef SERIAL_SENSOR_INIT_DEBUG
 	Serial.print("Sensor MAX= ");
-#endif // SERIAL_DEBUG
+#endif // SERIAL_SENSOR_INIT_DEBUG
 
 	for (int i = 0; i < SENSOR_COUNT; i++) {
 		sensor_max_limit[i] = sensor_sum[i] / SENSOR_SAMPLE_COUNT;
 
-#ifdef SERIAL_DEBUG
+#ifdef SERIAL_SENSOR_INIT_DEBUG
 		char buffer[20];
 		sprintf(buffer, "%2d :%4d, ", i, sensor_max_limit[i]);
 		Serial.write(buffer);
-#endif // SERIAL_DEBUG
+#endif // SERIAL_SENSOR_INIT_DEBUG
 
 	}
 
-#ifdef SERIAL_DEBUG
+#ifdef SERIAL_SENSOR_INIT_DEBUG
 	Serial.println("\n");
-#endif // SERIAL_DEBUG
+#endif // SERIAL_SENSOR_INIT_DEBUG
 
 	is_sensor_max_inited = true;
 }
@@ -422,24 +423,24 @@ void doSensorMinInit() {
 		}
 	}
 
-#ifdef SERIAL_DEBUG
+#ifdef SERIAL_SENSOR_INIT_DEBUG
 	Serial.print("Sensor MIN= ");
-#endif // SERIAL_DEBUG
+#endif // SERIAL_SENSOR_INIT_DEBUG
 
 	for (int i = 0; i < SENSOR_COUNT; i++) {
 		sensor_min_limit[i] = sensor_sum[i] / SENSOR_SAMPLE_COUNT;
 
-#ifdef SERIAL_DEBUG
+#ifdef SERIAL_SENSOR_INIT_DEBUG
 		char buffer[20];
 		sprintf(buffer, "%2d :%4d, ", i, sensor_min_limit[i]);
 		Serial.write(buffer);
-#endif // SERIAL_DEBUG
+#endif // SERIAL_SENSOR_INIT_DEBUG
 
 	}
 
-#ifdef SERIAL_DEBUG
+#ifdef SERIAL_SENSOR_INIT_DEBUG
 	Serial.println("\n");
-#endif // SERIAL_DEBUG
+#endif // SERIAL_SENSOR_INIT_DEBUG
 
 	is_sensor_min_inited = true;
 }
