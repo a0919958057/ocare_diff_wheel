@@ -1,10 +1,10 @@
 #include <Arduino.h>
 
 // Enable debug
-//#define SERIAL_DEBUG
+#define SERIAL_DEBUG
 
 // Enable tracking line exception detect
-#define TRACKING_EXCEPT_DETECT
+//#define TRACKING_EXCEPT_DETECT
 
 // Enable init sensor DEBUG
 #define SERIAL_SENSOR_INIT_DEBUG
@@ -116,8 +116,8 @@ LED Pin:
 #define SENSOR_VALUE_MIN 0
 
 uint16_t sensor_value[SENSOR_COUNT] = { 0 };
-uint16_t sensor_max_limit[SENSOR_COUNT] = { 118,170,130,128,127,127,139,133,130,136,142,134,122 };
-uint16_t sensor_min_limit[SENSOR_COUNT] = { 68,72,69,70,70,70,72,72,72,73,74,74,73 };
+uint16_t sensor_max_limit[SENSOR_COUNT] = { 0 };
+uint16_t sensor_min_limit[SENSOR_COUNT] = { 0 };
 const float SENSOR_WEIGHT[SENSOR_COUNT] =
 { -6.0, -5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 };
 
@@ -127,16 +127,17 @@ bool is_sensor_max_inited = false;
 
 
 /****** define the PID controller information******/
-#define ERROR_MAX       2.0
-#define ERROR_MIN       -2.0
+#define ERROR_MAX       (2.0)
+#define ERROR_MIN       (-2.0)
 
-#define ERROR_RATE_MAX  0.5
-#define ERROR_RATE_MIN  -0.5
+#define ERROR_RATE_MAX  (0.5)
+#define ERROR_RATE_MIN  (-0.5)
 
-#define BASE_SPEED      100
-#define SLOW_RATIO		2
+#define BASE_SPEED      (150)
+#define SLOW_RATIO		(2)
 
-#define K_P				100
+#define K_P				(60)
+#define K_D				(0)
 
 // set the motor status
 void motor_cmd(int _left_motor, int _right_motor);
@@ -194,7 +195,6 @@ unsigned long time_stamp_old = millis();
 
 float period_time = 0;
 
-int kp(100);
 void loop()
 {
 
@@ -203,7 +203,8 @@ void loop()
 
 	time_stamp_old = time_stamp;
 	time_stamp = millis();
-	period_time = float(time_stamp - time_stamp_old) * TIME_RATIO;
+	// period_time = float(time_stamp - time_stamp_old) * TIME_RATIO;
+	period_time = float(time_stamp - time_stamp_old);
 
 	get_sensor_data();
 
@@ -236,11 +237,12 @@ void loop()
 	else
 		error_modify = error;
 
-	int output = error_modify * K_P;
+	int output_kp = error_modify * K_P;
+	int output_kd = error_rate * K_D;
 	//Serial.println(output);
 	int speed;
-	speed = BASE_SPEED - abs(output) / SLOW_RATIO;
-	motor_cmd(speed + (int)output, speed - 1 * (int)output);
+	speed = BASE_SPEED - abs(output_kp) * SLOW_RATIO;
+	motor_cmd(speed + (int)output_kp, speed - 1 * (int)output_kp );
 
 #ifdef SERIAL_DEBUG
 
@@ -249,16 +251,17 @@ void loop()
 	//       Serial.print('\t');
 	//   }
 	//Serial.println('\t');
-
+	Serial.print(period_time);
+	Serial.print('\t');
 	Serial.print(error_modify);
 	Serial.print('\t');
 	Serial.print(error_rate);
 	Serial.print('\t');
-	Serial.print(output);
+	Serial.print(output_kp);
 	Serial.print('\t');
-	Serial.print(speed - (int)output);
+	Serial.print(speed - (int)output_kp);
 	Serial.print('\t');
-	Serial.print(speed + (int)output);
+	Serial.print(speed + (int)output_kp);
 	Serial.print('\t');
 
 	Serial.println('\t');
