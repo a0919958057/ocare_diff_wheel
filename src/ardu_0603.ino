@@ -1,5 +1,89 @@
 #include <Arduino.h>
 
+// The modbus serial commiuncation library
+#include <Modbus.h>
+#include <ModbusSerial.h>
+
+/********************** Modbus Information ************************/
+
+#define MB_SENSOR_ADDRESS	100
+#define MB_SLAVER_ID_		6
+// Define the Modbus HOLD_REGISTER Mapping
+enum StateHoldRegister {
+	CHASSIS_MODE,
+	LEFT_WHEEL_TORQUE,
+	RIGHT_WHEEL_TORQUE,
+	TRACKLINE_TORQUE_MODE,
+	SENSOR_DATA1,
+	SENSOR_DATA2,
+	CMD_CHASSIS_MODE,
+	CMD_LEFT_WHEEL_TORQUE,
+	CMD_RIGHT_WHEEL_TORQUE,
+	CMD_TRACKLINE_TORQUE_MODE
+};
+
+/******Defination of the Chassis Mode
+* TRACK_LINE :     Tracking the path and follow the path
+* CONTROLLABLE:    The Arduino would use LEFT_WHEEL_TORQUE and RIGHT_WHEEL_TORQUE to effort the wheel
+* STOP:            All of the driver would stop until Mode become others.
+* **************************/
+enum ChassisMode {
+	MODE_TRACK_LINE,
+	MODE_CONTROLLABLE,
+	MODE_STOP
+};
+
+/******Defination of the Chassis Mode command
+* TRACK_LINE :     Tracking the path and follow the path
+* CONTROLLABLE:    The Arduino would use LEFT_WHEEL_TORQUE and RIGHT_WHEEL_TORQUE to effort the wheel
+* STOP:            All of the driver would stop until Mode become others.
+* **************************/
+enum ChassisModeCMD {
+	MODE_TRACK_LINE_CMD,
+	MODE_CONTROLLABLE_CMD,
+	MODE_STOP_CMD
+};
+
+/******Defination of the Chassis Mode
+* HIGH :           Useing the higher torque Fuzzy rule
+* MED:             Useing the normal torque Fuzzy rule
+* LOW:             Useing the low torque Fuzzy rule
+* **************************/
+enum TrackingTorqueMode {
+	TORQUE_HIGH,
+	TORQUE_MED,
+	TORQUE_LOW
+};
+
+/******Defination of the Chassis Mode command
+* HIGH :           command arduino use the higher torque Fuzzy rule
+* MED:             command arduino use the normal torque Fuzzy rule
+* LOW:             command arduino use the low torque Fuzzy rule
+* **************************/
+enum TrackingTorqueModeCMD {
+	TORQUE_HIGH_CMD,
+	TORQUE_MED_CMD,
+	TORQUE_LOW_CMD
+};
+
+/******************************************************************/
+
+// Modbus object
+ModbusSerial mb;
+
+uint16_t input_Chassis_Mode;
+int16_t input_Left_Wheel_T;
+int16_t input_Right_Wheel_T;
+uint16_t input_Trackline_T_Mode;
+
+uint16_t output_Chassis_mode;
+uint16_t output_Trackline_T_mode;
+int16_t output_Left_Wheel_T;
+int16_t output_Right_Wheel_T;
+uint16_t output_Sensor_Data1;
+uint16_t output_Sensor_Data2;
+
+
 // Enable debug
 #define SERIAL_DEBUG
 
@@ -133,7 +217,11 @@ bool is_sensor_max_inited = false;
 #define ERROR_RATE_MAX  (0.5)
 #define ERROR_RATE_MIN  (-0.5)
 
-#define BASE_SPEED      (150)
+#define BASE_HIGH_TORQUE     (200)
+#define BASE_MED_TORQUE      (150)
+#define BASE_LOW_TORQUE      (100)
+
+
 #define SLOW_RATIO		(2)
 
 #define K_P				(60)
@@ -145,11 +233,17 @@ void motor_cmd(int _left_motor, int _right_motor);
 // Init the pin I/O
 void init_pin();
 
+// Init the ModbusSerial
+void init_modbus();
+
 // compute error using sensor_value
 float get_error();
 
 // update the sensor_value
 float get_sensor_data();
+
+// Sync the global variable to the ModbusSerial context
+void modbus_sync();
 
 
 #ifdef TRACKING_EXCEPT_DETECT
@@ -167,6 +261,9 @@ void setup()
 
 	/* Setup the pin I/O mode */
 	init_pin();
+
+	/* Setup the ModbusSerial */
+	init_modbus();
 
 	while (true) {
 
@@ -198,6 +295,11 @@ float period_time = 0;
 void loop()
 {
 
+
+	// TODO: Change the sync tesk to the Serial3 Interrupt
+	// Sync the register with Raspberry Pi 2 ROS
+	modbus_sync();
+
 	float error_rate(0);
 	float error_modify(0);
 
@@ -224,7 +326,7 @@ void loop()
 #endif // TRACKING_EXCEPT_DETECT
 
 
-	// �d���L�j�L�p��ERROR �M ERROR RATE
+	// Trim the Maximum and Minimum of error_rate and error
 	if (error_rate < ERROR_RATE_MIN)
 		error_rate = ERROR_RATE_MIN;
 	else if (error_rate > ERROR_RATE_MAX)
@@ -237,20 +339,101 @@ void loop()
 	else
 		error_modify = error;
 
+	/********************* Modbus Control ************************/
+
+	int trackline_torque = BASE_MED_TORQUE;
+
+	if (input_Trackline_T_Mode == TrackingTorqueModeCMD::TORQUE_HIGH_CMD) {
+		trackline_torque = BASE_HIGH_TORQUE;
+
+		output_Trackline_T_mode = input_Trackline_T_Mode;
+		mb.Hreg(StateHoldRegister::TRACKLINE_TORQUE_MODE, output_Trackline_T_mode);
+	}
+	else if (input_Trackline_T_Mode == TrackingTorqueModeCMD::TORQUE_MED_CMD) {
+		trackline_torque = BASE_MED_TORQUE;
+
+		output_Trackline_T_mode = input_Trackline_T_Mode;
+		mb.Hreg(StateHoldRegister::TRACKLINE_TORQUE_MODE, output_Trackline_T_mode);
+	}
+	else if (input_Trackline_T_Mode == TrackingTorqueModeCMD::TORQUE_LOW_CMD) {
+		trackline_torque = BASE_LOW_TORQUE;
+
+	output_Trackline_T_mode = input_Trackline_T_Mode;
+	mb.Hreg(StateHoldRegister::TRACKLINE_TORQUE_MODE, output_Trackline_T_mode);
+}
+
+	/*************************************************************/
+
+
 	int output_kp = error_modify * K_P;
 	int output_kd = error_rate * K_D;
 	//Serial.println(output);
 	int speed;
-	speed = BASE_SPEED - abs(output_kp) * SLOW_RATIO;
-	motor_cmd(speed + (int)output_kp, speed - 1 * (int)output_kp );
+	speed = trackline_torque - abs(output_kp) * SLOW_RATIO;
+
+	// NOTE: We don't use D controller,so that we dont put it on torque variable
+	int left_torque = speed + (int)output_kp;
+	int right_torque = speed - 1 * (int)output_kp;
+
+
+	// The diff wheel chassis use CMD STATE to determine which toqure variable will give motor
+	if (input_Chassis_Mode == ChassisModeCMD::MODE_TRACK_LINE_CMD) {
+
+		// If there is TRACK_LINE_MODE, then P controller output will be used
+		motor_cmd(left_torque, right_torque);
+
+		/**** Sync the CMD to report register ****/
+		output_Chassis_mode = ChassisMode::MODE_TRACK_LINE;
+		mb.Hreg(StateHoldRegister::CHASSIS_MODE, output_Chassis_mode);
+
+		output_Left_Wheel_T = left_torque;
+		output_Right_Wheel_T = right_torque;
+		mb.Hreg(StateHoldRegister::LEFT_WHEEL_TORQUE, output_Left_Wheel_T);
+		mb.Hreg(StateHoldRegister::RIGHT_WHEEL_TORQUE, output_Right_Wheel_T);
+	}
+
+	if (input_Chassis_Mode == ChassisModeCMD::MODE_CONTROLLABLE_CMD) {
+
+		// If there is CONTROLLABLE_MODE, then ROS Torque CMD will be used
+		motor_cmd(input_Left_Wheel_T, input_Right_Wheel_T);
+
+		/**** Sync the CMD to report register ****/
+		output_Chassis_mode = ChassisMode::MODE_CONTROLLABLE;
+		mb.Hreg(StateHoldRegister::CHASSIS_MODE, output_Chassis_mode);
+
+		output_Left_Wheel_T = input_Left_Wheel_T;
+		output_Right_Wheel_T = input_Right_Wheel_T;
+		mb.Hreg(StateHoldRegister::LEFT_WHEEL_TORQUE, output_Left_Wheel_T);
+		mb.Hreg(StateHoldRegister::RIGHT_WHEEL_TORQUE, output_Right_Wheel_T);
+	}
+
+	if (input_Chassis_Mode == ChassisModeCMD::MODE_STOP_CMD) {
+
+		// If there is STOP_MODE, then The Wheel will stop
+		motor_cmd(0, 0);
+
+		/**** Sync the CMD to report register ****/
+		output_Left_Wheel_T = 0;
+		output_Right_Wheel_T = 0;
+		mb.Hreg(StateHoldRegister::LEFT_WHEEL_TORQUE, output_Left_Wheel_T);
+		mb.Hreg(StateHoldRegister::RIGHT_WHEEL_TORQUE, output_Right_Wheel_T);
+
+		output_Chassis_mode = ChassisMode::MODE_STOP;
+		mb.Hreg(StateHoldRegister::CHASSIS_MODE, output_Chassis_mode);
+	}
+
+
+#ifdef SERIAL_SENSOR_DEBUG
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+      Serial.print(sensor_value[i]); //debug
+      Serial.print('\t');
+  }
+	Serial.println('\t');
+#endif // SERIAL_SENSOR_DEBUG
 
 #ifdef SERIAL_DEBUG
 
-	//   for (int i = 0; i < SENSOR_COUNT; i++) {
-	//       Serial.print(sensor_value[i]); //debug
-	//       Serial.print('\t');
-	//   }
-	//Serial.println('\t');
+
 	Serial.print(period_time);
 	Serial.print('\t');
 	Serial.print(error_modify);
@@ -267,6 +450,50 @@ void loop()
 	Serial.println('\t');
 #endif // SERIAL_DEBUG
 
+}
+
+void init_modbus() {
+	// Config Mosbus Serial
+	mb.config(&Serial3, 115200, SERIAL_8N2);
+
+	// Config slaves ID
+	mb.setSlaveId(MB_SLAVER_ID_);
+
+	// Add the mapping register to specifid Register
+
+	mb.addHreg(CHASSIS_MODE);
+	mb.addHreg(LEFT_WHEEL_TORQUE);
+	mb.addHreg(RIGHT_WHEEL_TORQUE);
+	mb.addHreg(TRACKLINE_TORQUE_MODE);
+	mb.addHreg(SENSOR_DATA1);
+	mb.addHreg(SENSOR_DATA2);
+	mb.addHreg(CMD_CHASSIS_MODE);
+	mb.addHreg(CMD_LEFT_WHEEL_TORQUE);
+	mb.addHreg(CMD_RIGHT_WHEEL_TORQUE);
+	mb.addHreg(CMD_TRACKLINE_TORQUE_MODE);
+
+	for (int i = 0; i < SENSOR_COUNT; i++) {
+		mb.addHreg(MB_SENSOR_ADDRESS + i);
+	}
+
+	// initial for all ModbusSerial mb to be zero
+
+	mb.Hreg(StateHoldRegister::CHASSIS_MODE, ChassisMode::MODE_STOP);
+	mb.Hreg(StateHoldRegister::LEFT_WHEEL_TORQUE, 0);
+	mb.Hreg(StateHoldRegister::RIGHT_WHEEL_TORQUE, 0);
+	mb.Hreg(StateHoldRegister::TRACKLINE_TORQUE_MODE, TrackingTorqueMode::TORQUE_MED);
+	mb.Hreg(StateHoldRegister::SENSOR_DATA1, 0);
+	mb.Hreg(StateHoldRegister::SENSOR_DATA2, 0);
+	mb.Hreg(StateHoldRegister::CMD_CHASSIS_MODE, ChassisModeCMD::MODE_STOP_CMD);
+	mb.Hreg(StateHoldRegister::CMD_LEFT_WHEEL_TORQUE, 0);
+	mb.Hreg(StateHoldRegister::CMD_RIGHT_WHEEL_TORQUE, 0);
+	mb.Hreg(StateHoldRegister::CMD_TRACKLINE_TORQUE_MODE, TrackingTorqueModeCMD::TORQUE_MED_CMD);
+
+	// Initial all ModbusSerial SENSOR_REGISTER
+
+	for (int i = 0; i < SENSOR_COUNT; i++) {
+		mb.Hreg(MB_SENSOR_ADDRESS + i, 0);
+	}
 }
 
 void init_pin() {
@@ -306,6 +533,7 @@ float get_error() {
 	float weight_sum(0);
 	for (int i = 0, error = 0; i < SENSOR_COUNT; i++) {
 		weight_sum += (SENSOR_WEIGHT[i]) * (100 - sensor_value[i]);
+				// NOTE: the sensor read black will be 0, and white will be 100 so need inverse
 		sum += 100 - sensor_value[i];
 	}
 	return weight_sum / sum;
@@ -446,4 +674,28 @@ void doSensorMinInit() {
 #endif // SERIAL_SENSOR_INIT_DEBUG
 
 	is_sensor_min_inited = true;
+}
+
+void modbus_sync() {
+	// sync all state immediately
+	mb.task();
+
+	// Read all ModbusSerial mb context to global variable
+	input_Chassis_Mode = mb.Hreg(StateHoldRegister::CMD_CHASSIS_MODE);
+	input_Left_Wheel_T = mb.Hreg(StateHoldRegister::CMD_LEFT_WHEEL_TORQUE);
+	input_Right_Wheel_T = mb.Hreg(StateHoldRegister::CMD_RIGHT_WHEEL_TORQUE);
+	input_Trackline_T_Mode = mb.Hreg(StateHoldRegister::CMD_TRACKLINE_TORQUE_MODE);
+
+	// Write all global variable to ModbusSerial mb context
+	output_Left_Wheel_T = mb.Hreg(StateHoldRegister::LEFT_WHEEL_TORQUE);
+	output_Right_Wheel_T = mb.Hreg(StateHoldRegister::RIGHT_WHEEL_TORQUE);
+	output_Chassis_mode = mb.Hreg(StateHoldRegister::CHASSIS_MODE);
+	output_Sensor_Data1 = mb.Hreg(StateHoldRegister::SENSOR_DATA1);
+	output_Sensor_Data2 = mb.Hreg(StateHoldRegister::SENSOR_DATA2);
+	output_Trackline_T_mode = mb.Hreg(StateHoldRegister::TRACKLINE_TORQUE_MODE);
+
+	// Write All sensor data to the ModbusSerial mb context
+	for (int i = 0; i < SENSOR_COUNT; i++) {
+		mb.Hreg(MB_SENSOR_ADDRESS + i, sensor_value[i]);
+	}
 }
