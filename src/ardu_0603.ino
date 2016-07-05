@@ -235,7 +235,7 @@ bool is_sensor_max_inited = false;
 #define ERROR_RATE_MAX  (0.5)
 #define ERROR_RATE_MIN  (-0.5)
 
-#define BASE_HIGH_TORQUE     (200)
+#define BASE_HIGH_TORQUE     (255)
 #define BASE_MED_TORQUE      (150)
 #define BASE_LOW_TORQUE      (100)
 
