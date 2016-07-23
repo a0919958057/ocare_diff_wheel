@@ -103,10 +103,10 @@ uint16_t output_BW_mode;
 
 
 // Enable debug
-#define SERIAL_DEBUG
+//#define SERIAL_DEBUG
 
 // Enable tracking line exception detect
-//#define TRACKING_EXCEPT_DETECT
+#define TRACKING_EXCEPT_DETECT
 
 // Enable init sensor DEBUG
 #define SERIAL_SENSOR_INIT_DEBUG
@@ -127,8 +127,8 @@ uint16_t output_BW_mode;
 | [ ]N/C                    SCK/13[ ]~|   B7
 | [ ]v.ref                 MISO/12[ ]~|   B6
 | [ ]RST                   MOSI/11[ ]~|   B5
-| [ ]3V3      +----------+      10[X]~|   B4    Left Wheel Vref
-| [ ]5v       | ARDUINO  |       9[X]~|   H6    Right Wheel Vref
+| [ ]3V3      +----------+      10[X]~|   B4    Right Wheel Vref
+| [ ]5v       | ARDUINO  |       9[X]~|   H6    Left Wheel Vref
 | [ ]GND      |   MEGA   |       8[ ]~|   H5
 | [ ]GND      +----------+            |
 | [ ]Vin                         7[ ]~|   H4
@@ -158,8 +158,8 @@ uint16_t output_BW_mode;
 | N 5 5 4 4 4 4 4 3 3 3 3 3 2 2 2 2 5 |    32=C5  33=C4
 | D 2 0 8 6 4 2 0 8 6 4 2 0 8 6 4 2 V |    34=C3  35=C2
 |         ~ ~                         |    36=C1  37=C0
-| @ X X # # # # # # # # # # # # X X @ |    38=D7  39=G2
-| @ X X # # # # # # # # # # # # X X @ |    40=G1  41=G0
+| @ # # # # # # # # X X X X X X X X @ |    38=D7  39=G2
+| @ # # # # # # # # # # # # # # # # @ |    40=G1  41=G0
 |           ~                         |    42=L7  43=L6
 | G 5 5 4 4 4 4 4 3 3 3 3 3 2 2 2 2 5 |    44=L5  45=L4
 | N 3 1 9 7 5 3 1 9 7 5 3 1 9 7 5 3 V |    46=L3  47=L2
@@ -169,49 +169,50 @@ uint16_t output_BW_mode;
 \_______________________/
 
 Digitial Pin:
-22: Left Wheel      INPUT1
-23: Left Wheel      INPUT2
+24: Left Wheel      INPUT1
+22: Left Wheel      INPUT2
 
-24: Right Wheel     INPUT1
-25: Right Wheel     INPUT2
+28: Right Wheel     INPUT1
+26: Right Wheel     INPUT2
 
-52: White init      BUTTON
-53: Black init      BUTTON
+34: White init      BUTTON
+36: Black init      BUTTON
 
 ADC Pin:
 A1 - A13 Sensors
 
 LED Pin:
-51: Red
-50: Green
+32: Red
+30: Green
 
 ********************** Pin I/O Define end ********************/
 
 /* define the wheel output pin */
 // Left wheel
-#define PIN_WHEEL_LEFT_VREF     (10)
-#define PIN_WHEEL_LEFT_INPUT_1  (22)
-#define PIN_WHEEL_LEFT_INPUT_2  (23)
+#define PIN_WHEEL_LEFT_VREF     (9)
+#define PIN_WHEEL_LEFT_INPUT_1  (24)
+#define PIN_WHEEL_LEFT_INPUT_2  (22)
 
 // Right wheel
-#define PIN_WHEEL_RIGHT_VREF    (9)
-#define PIN_WHEEL_RIGHT_INPUT_1 (24)
-#define PIN_WHEEL_RIGHT_INPUT_2 (25)
+#define PIN_WHEEL_RIGHT_VREF    (10)
+#define PIN_WHEEL_RIGHT_INPUT_1 (28)
+#define PIN_WHEEL_RIGHT_INPUT_2 (26)
 
 /* define the wheel output pin */
-#define BUTTON_WHITE_INIT       (52)
-#define BUTTON_BLACK_INIT       (53)
+#define BUTTON_WHITE_INIT       (34)
+#define BUTTON_BLACK_INIT       (36)
 
 /* define the LED output Pin  */
-#define LED_RED									(51)
-#define LED_GREEN								(50)
+#define LED_RED									(32)
+#define LED_GREEN								(30)
 
 /**** define the sensor information ****/
-#define SENSOR_START_PIN        1
-#define SENSOR_COUNT            13
-#define SENSOR_SAMPLE_COUNT     1000
-#define SENSOR_WHITE_THRESHOLD  50
-#define TIME_RATIO              0.01
+#define SENSOR_START_PIN        (1)
+#define SENSOR_COUNT            (13)
+#define SENSOR_SAMPLE_COUNT     (1000)
+#define SENSOR_WHITE_THRESHOLD  (100)
+#define SENSOR_BLACK_THRESHOLD  (100 * SENSOR_COUNT - 100)
+#define TIME_RATIO              (0.01)
 
 // Sensor mapping
 #define SENSOR_VALUE_MAX 100
@@ -229,21 +230,21 @@ bool is_sensor_max_inited = false;
 
 
 /****** define the PID controller information******/
-#define ERROR_MAX       (2.0)
-#define ERROR_MIN       (-2.0)
+#define ERROR_MAX       (5.0)
+#define ERROR_MIN       (-5.0)
 
-#define ERROR_RATE_MAX  (0.5)
-#define ERROR_RATE_MIN  (-0.5)
+#define ERROR_RATE_MAX  (1.0)
+#define ERROR_RATE_MIN  (-1.0)
 
 #define BASE_HIGH_TORQUE     (255)
-#define BASE_MED_TORQUE      (150)
+#define BASE_MED_TORQUE      (211)
 #define BASE_LOW_TORQUE      (100)
 
 
-#define SLOW_RATIO		(2)
+#define SLOW_RATIO		(1.0)
 
-#define K_P				(60)
-#define K_D				(0)
+#define K_P				(120)
+#define K_D				(70)
 
 // set the motor status
 void motor_cmd(int _left_motor, int _right_motor);
@@ -265,7 +266,7 @@ void modbus_sync();
 
 
 #ifdef TRACKING_EXCEPT_DETECT
-bool except_detect();
+bool except_detect(bool _is_track_black);
 #endif // TRACKING_EXCEPT_DETECT
 
 
@@ -308,6 +309,7 @@ float error(0);
 unsigned long time_stamp = millis();
 unsigned long time_stamp_old = millis();
 
+
 float period_time = 0;
 
 void loop()
@@ -330,7 +332,7 @@ void loop()
 
 	/********************* Modbus Control ************************/
 
-	bool is_track_black(false);
+  bool is_track_black(false);
 
 	if(input_BW_mode == SensorBWModeCMD::BLACK_CMD) {
 		output_BW_mode = SensorBWMode::BLACK;
@@ -353,9 +355,9 @@ void loop()
 
 	// If there is any exception while tracking the line, then use old error
 #ifdef TRACKING_EXCEPT_DETECT
-	if (except_detect() == true) {
+	if (except_detect(is_track_black) == true) {
 		error = error_last;
-		error_rate = error / 2;
+		error_rate = 0;
 	}
 #endif // TRACKING_EXCEPT_DETECT
 
@@ -399,11 +401,17 @@ void loop()
 	/*************************************************************/
 
 
+
 	int output_kp = error_modify * K_P;
 	int output_kd = error_rate * K_D;
 	//Serial.println(output);
 	int speed;
-	speed = trackline_torque - abs(output_kp) * SLOW_RATIO;
+	if(abs(error_modify) < 4) {
+		speed = trackline_torque;
+	} else {
+		speed = trackline_torque - abs(output_kp) * SLOW_RATIO;
+	}
+
 
 	// NOTE: We don't use D controller,so that we dont put it on torque variable
 	int left_torque = speed + (int)output_kp;
@@ -604,15 +612,17 @@ float get_sensor_data() {
 }
 
 #ifdef TRACKING_EXCEPT_DETECT
-bool except_detect() {
-	int sensor_white;
-	sensor_white = 0;
+bool except_detect(bool _is_track_black) {
+	int sensor_sum;
+	sensor_sum = 0;
 	for (int i = 0; i < SENSOR_COUNT; i++) {
-		if (sensor_value[i] < SENSOR_WHITE_THRESHOLD) sensor_white++;
+		sensor_sum += sensor_value[i];
 	}
 
-	return (sensor_white == SENSOR_COUNT);
-
+	if(_is_track_black)
+		return (sensor_sum > SENSOR_BLACK_THRESHOLD);
+	else
+		return (sensor_sum < SENSOR_WHITE_THRESHOLD);
 }
 #endif // TRACKING_EXCEPT_DETECT
 
