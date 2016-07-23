@@ -230,21 +230,22 @@ bool is_sensor_max_inited = false;
 
 
 /****** define the PID controller information******/
-#define ERROR_MAX       (5.0)
-#define ERROR_MIN       (-5.0)
+#define ERROR_MAX       			(6.0)
+#define ERROR_MIN       			(-6.0)
 
-#define ERROR_RATE_MAX  (1.0)
-#define ERROR_RATE_MIN  (-1.0)
+#define ERROR_RATE_MAX  			(1.0)
+#define ERROR_RATE_MIN  			(-1.0)
 
-#define BASE_HIGH_TORQUE     (255)
-#define BASE_MED_TORQUE      (211)
-#define BASE_LOW_TORQUE      (100)
+#define BASE_HIGH_TORQUE			(255)
+#define BASE_MED_TORQUE				(211)
+#define BASE_LOW_TORQUE      	(100)
 
+#define SLOW_BASE_THRESHOLD		(6)
 
-#define SLOW_RATIO		(1.0)
+#define SLOW_RATIO						(1.0)
 
-#define K_P				(120)
-#define K_D				(70)
+#define K_P										(120)
+#define K_D										(70)
 
 // set the motor status
 void motor_cmd(int _left_motor, int _right_motor);
@@ -406,10 +407,10 @@ void loop()
 	int output_kd = error_rate * K_D;
 	//Serial.println(output);
 	int speed;
-	if(abs(error_modify) < 4) {
+	if(abs(error_modify) < SLOW_BASE_THRESHOLD) {
 		speed = trackline_torque;
 	} else {
-		speed = trackline_torque - abs(output_kp) * SLOW_RATIO;
+		speed = trackline_torque - (abs(output_kp) - SLOW_BASE_THRESHOLD * K_P) * SLOW_RATIO;
 	}
 
 
