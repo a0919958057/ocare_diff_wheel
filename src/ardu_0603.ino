@@ -128,15 +128,15 @@ uint16_t output_BW_mode;
 | [ ]v.ref                 MISO/12[ ]~|   B6
 | [ ]RST                   MOSI/11[ ]~|   B5
 | [ ]3V3      +----------+      10[X]~|   B4    Right Wheel Vref
-| [ ]5v       | ARDUINO  |       9[X]~|   H6    Left Wheel Vref
-| [ ]GND      |   MEGA   |       8[ ]~|   H5
-| [ ]GND      +----------+            |
-| [ ]Vin                         7[ ]~|   H4
-|                                6[ ]~|   H3
-| [ ]A0                          5[ ]~|   E3
-| [X]A1                          4[ ]~|   G5
-| [X]A2                     INT5/3[ ]~|   E5
-| [X]A3                     INT4/2[ ]~|   E4
+| [X]5v       | ARDUINO  |       9[X]~|   H6    Left Wheel Vref
+| [X]GND      |   MEGA   |       8[ ]~|   H5
+| [X]GND      +----------+            |
+| [ ]Vin                         7[X]~|   H4
+|                                6[X]~|   H3
+| [ ]A0                          5[X]~|   E3
+| [X]A1                          4[X]~|   G5
+| [X]A2                     INT5/3[X]~|   E5
+| [X]A3                     INT4/2[X]~|   E4
 | [X]A4                       TX>1[ ]~|   E1
 | [X]A5                       RX<0[ ]~|   E0
 | [X]A6                               |
@@ -148,8 +148,8 @@ uint16_t output_BW_mode;
 | [X]A11               RX1/INT2/19[ ] |   D2
 | [X]A12           I2C-SDA/INT1/20[ ] |   D1
 | [X]A13           I2C-SCL/INT0/21[ ] |   D0
-| [ ]A14                              |
-| [ ]A15                              |   Ports:
+| [X]A14                              |
+| [X]A15                              |   Ports:
 |                RST SCK MISO         |    22=A0  23=A1
 |         ICSP   [ ] [ ] [ ]          |    24=A2  25=A3
 |                [ ] [ ] [ ]          |    26=A4  27=A5
@@ -158,8 +158,8 @@ uint16_t output_BW_mode;
 | N 5 5 4 4 4 4 4 3 3 3 3 3 2 2 2 2 5 |    32=C5  33=C4
 | D 2 0 8 6 4 2 0 8 6 4 2 0 8 6 4 2 V |    34=C3  35=C2
 |         ~ ~                         |    36=C1  37=C0
-| @ # # # # # # # # X X X X X X X X @ |    38=D7  39=G2
-| @ # # # # # # # # # # # # # # # # @ |    40=G1  41=G0
+| @ # # X X # # # # X X X X X X X X @ |    38=D7  39=G2
+| @ # # X X # # # # # # # # # # # # @ |    40=G1  41=G0
 |           ~                         |    42=L7  43=L6
 | G 5 5 4 4 4 4 4 3 3 3 3 3 2 2 2 2 5 |    44=L5  45=L4
 | N 3 1 9 7 5 3 1 9 7 5 3 1 9 7 5 3 V |    46=L3  47=L2
@@ -178,8 +178,23 @@ Digitial Pin:
 34: White init      BUTTON
 36: Black init      BUTTON
 
+49:	SEG7-3-2				BIT0
+48:	SEG7-3-2				BIT1
+47:	SEG7-3-2				BIT2
+46:	SEG7-3-2				BIT3
+
+2:	SEG7-3-2				DIG1-3
+3:	SEG7-3-2				DIG1-2
+4:	SEG7-3-2				DIG1-1
+5:	SEG7-3-2				DIG2-3
+6:	SEG7-3-2				DIG2-2
+7:	SEG7-3-2				DIG2-1
+
 ADC Pin:
 A1 - A13 Sensors
+
+A14			 VR2
+A15			 VR1
 
 LED Pin:
 32: Red
@@ -218,6 +233,28 @@ LED Pin:
 #define SENSOR_VALUE_MAX 100
 #define SENSOR_VALUE_MIN 0
 
+// SEG7 mapping
+#define SEG7_1_3_DEG_SELECT        (2)
+#define SEG7_1_2_DEG_SELECT        (3)
+#define SEG7_1_1_DEG_SELECT        (4)
+#define SEG7_2_3_DEG_SELECT        (5)
+#define SEG7_2_2_DEG_SELECT        (6)
+#define SEG7_2_1_DEG_SELECT        (7)
+
+// VR mapping
+#define VR_1											 (15)
+#define VR_2											 (14)
+
+const int seg7_1_sel[] = {
+    SEG7_1_1_DEG_SELECT,
+    SEG7_1_2_DEG_SELECT,
+    SEG7_1_3_DEG_SELECT };
+
+const int seg7_2_sel[] = {
+    SEG7_2_1_DEG_SELECT,
+    SEG7_2_2_DEG_SELECT,
+    SEG7_2_3_DEG_SELECT };
+
 uint16_t sensor_value[SENSOR_COUNT] = { 0 };
 uint16_t sensor_max_limit[SENSOR_COUNT] = { 0 };
 uint16_t sensor_min_limit[SENSOR_COUNT] = { 0 };
@@ -244,8 +281,8 @@ bool is_sensor_max_inited = false;
 
 #define SLOW_RATIO						(1.0)
 
-#define K_P										(120)
-#define K_D										(70)
+int K_P = (120);
+int K_D =	(70);
 
 // set the motor status
 void motor_cmd(int _left_motor, int _right_motor);
@@ -264,6 +301,9 @@ float get_sensor_data();
 
 // Sync the global variable to the ModbusSerial context
 void modbus_sync();
+
+// Show the number to the 7-seg display
+void set_seg7_6(int _num_1, int _num_2);
 
 
 #ifdef TRACKING_EXCEPT_DETECT
@@ -345,6 +385,12 @@ void loop()
 		mb.Hreg(StateHoldRegister::SENSOR_BW_MODE, output_BW_mode);
 	}
 
+	/*************************************************************/
+
+	/*************** Read the setting from VR ********************/
+	K_P = map(analogRead(VR_1),0,1023,1,500);
+	K_D = map(analogRead(VR_2),0,1023,1,300);
+	set_seg7_6(K_P, K_D);
 	/*************************************************************/
 
 	// Store the old error value
@@ -571,6 +617,18 @@ void init_pin() {
 	pinMode(LED_RED, OUTPUT);
 	pinMode(LED_GREEN, OUTPUT);
 
+	/* Setup the Digital Output */
+  DDRL |= B00001111;
+
+	for (int i = 0; i < 3; i++) {
+		pinMode(seg7_1_sel[i], OUTPUT);
+		digitalWrite(seg7_1_sel[i], LOW);
+	}
+
+	for (int i = 0; i < 3; i++) {
+			pinMode(seg7_2_sel[i], OUTPUT);
+			digitalWrite(seg7_2_sel[i], LOW);
+	}
 
 }
 
@@ -756,4 +814,49 @@ void modbus_sync() {
 	for (int i = 0; i < SENSOR_COUNT; i++) {
 		mb.Hreg(MB_SENSOR_ADDRESS + i, sensor_value[i]);
 	}
+}
+
+void set_seg7_6(int _num_1, int _num_2) {
+    static int num_index = 0;
+
+    // Clear the SELECT
+    if (num_index < 3) {
+        digitalWrite(seg7_1_sel[num_index], LOW);
+    } else {
+        digitalWrite(seg7_2_sel[num_index - 3], LOW);
+    }
+
+    num_index++;
+    if (num_index == 6) num_index = 0;
+
+    // SET the SELECT
+    if (num_index < 3) {
+
+        digitalWrite(seg7_1_sel[num_index], HIGH);
+    } else {
+
+        digitalWrite(seg7_2_sel[num_index - 3], HIGH);
+    }
+
+    switch (num_index) {
+    case 0:
+        PORTL = _num_1 % 10;
+        break;
+    case 1:
+        PORTL = (_num_1 / 10) % 10;
+        break;
+    case 2:
+        PORTL = (_num_1 / 100) % 10;
+        break;
+    case 3:
+        PORTL = _num_2 % 10;
+        break;
+    case 4:
+        PORTL = (_num_2 / 10) % 10;
+        break;
+    case 5:
+        PORTL = (_num_2 / 100) % 10;
+        break;
+    }
+
 }
