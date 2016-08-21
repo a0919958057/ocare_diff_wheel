@@ -103,10 +103,12 @@ uint16_t output_BW_mode;
 
 
 // Enable debug
+
+
 //#define SERIAL_DEBUG
 
 // Enable tracking line exception detect
-#define TRACKING_EXCEPT_DETECT
+//#define TRACKING_EXCEPT_DETECT
 
 // Enable init sensor DEBUG
 #define SERIAL_SENSOR_INIT_DEBUG
@@ -225,8 +227,8 @@ LED Pin:
 #define SENSOR_START_PIN        (1)
 #define SENSOR_COUNT            (13)
 #define SENSOR_SAMPLE_COUNT     (1000)
-#define SENSOR_WHITE_THRESHOLD  (100)
-#define SENSOR_BLACK_THRESHOLD  (100 * SENSOR_COUNT - 100)
+#define SENSOR_WHITE_THRESHOLD  (150)
+#define SENSOR_BLACK_THRESHOLD  (100 * (SENSOR_COUNT-1) - 150)
 #define TIME_RATIO              (0.01)
 
 // Sensor mapping
@@ -256,33 +258,36 @@ const int seg7_2_sel[] = {
     SEG7_2_3_DEG_SELECT };
 
 uint16_t sensor_value[SENSOR_COUNT] = { 0 };
-uint16_t sensor_max_limit[SENSOR_COUNT] = { 0 };
-uint16_t sensor_min_limit[SENSOR_COUNT] = { 0 };
+uint16_t sensor_max_limit[SENSOR_COUNT] = { 754, 829, 644, 818, 878, 859, 800, 965, 965, 968, 975, 964, 839 };
+uint16_t sensor_min_limit[SENSOR_COUNT] = {75, 69, 57, 69, 81, 77, 67, 95, 98, 98, 117, 89, 74};
 const float SENSOR_WEIGHT[SENSOR_COUNT] =
-{ -6.0, -5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 };
+{ -4.0, -4.0, -4.0, -4.0, -3.0, -2.0, 0.0, 2.0, 3.0, 4.0, 4.0, 4.0, 4.0 };
 
 // Robot sensor status flag
-bool is_sensor_min_inited = false;
-bool is_sensor_max_inited = false;
+bool is_sensor_min_inited = true;
+bool is_sensor_max_inited = true;
 
 
 /****** define the PID controller information******/
-#define ERROR_MAX       			(6.0)
-#define ERROR_MIN       			(-6.0)
+#define ERROR_MAX       			(4.0)
+#define ERROR_MIN       			(-4.0)
 
-#define ERROR_RATE_MAX  			(1.0)
-#define ERROR_RATE_MIN  			(-1.0)
+#define ERROR_RATE_MAX  			(100.0)
+#define ERROR_RATE_MIN  			(-100.0)
 
 #define BASE_HIGH_TORQUE			(255)
-#define BASE_MED_TORQUE				(211)
+//#define BASE_MED_TORQUE				(211)
+//#define BASE_MED_TORQUE				(0)
+#define BASE_MED_TORQUE				(180)
 #define BASE_LOW_TORQUE      	(100)
 
 #define SLOW_BASE_THRESHOLD		(6)
 
 #define SLOW_RATIO						(1.0)
 
-int K_P = (120);
-int K_D =	(70);
+int K_P = (200);
+int K_D =	(20);
+float K_D_f = K_D / 10.0;
 
 // set the motor status
 void motor_cmd(int _left_motor, int _right_motor);
@@ -326,7 +331,7 @@ void setup()
 	init_modbus();
 
 	while (true) {
-
+		int sensor_index(0);
 		if (digitalRead(BUTTON_WHITE_INIT))
 			doSensorMaxInit();
 
@@ -339,6 +344,11 @@ void setup()
 		if (is_sensor_min_inited == true) digitalWrite(LED_GREEN, LOW);
 		else digitalWrite(LED_GREEN,HIGH);
 
+		sensor_index = analogRead(VR_1) / 80;
+		if(sensor_index > 12) sensor_index = 12;
+
+		set_seg7_6(sensor_index + 1, analogRead(sensor_index + SENSOR_START_PIN));
+
 		if (is_sensor_max_inited && is_sensor_min_inited) break;
 	}
 
@@ -347,8 +357,8 @@ void setup()
 
 float error_last(0);
 float error(0);
-unsigned long time_stamp = millis();
-unsigned long time_stamp_old = millis();
+unsigned long time_stamp = micros();
+unsigned long time_stamp_old = micros();
 
 
 float period_time = 0;
@@ -364,12 +374,13 @@ void loop()
 	float error_rate(0);
 	float error_modify(0);
 
+	/******************** Get the during time ********************/
 	time_stamp_old = time_stamp;
-	time_stamp = millis();
-	// period_time = float(time_stamp - time_stamp_old) * TIME_RATIO;
-	period_time = float(time_stamp - time_stamp_old);
+	time_stamp = micros();
+	period_time = float(time_stamp - time_stamp_old) * 0.000001;
 
 	get_sensor_data();
+	/*************************************************************/
 
 	/********************* Modbus Control ************************/
 
@@ -388,9 +399,10 @@ void loop()
 	/*************************************************************/
 
 	/*************** Read the setting from VR ********************/
-	K_P = map(analogRead(VR_1),0,1023,1,500);
-	K_D = map(analogRead(VR_2),0,1023,1,300);
+	//K_P = map(analogRead(VR_1),0,1023,1,500);
+	//K_D = map(analogRead(VR_2),0,1023,1,300);
 	set_seg7_6(K_P, K_D);
+	//float K_D_f = K_D / 10.0;
 	/*************************************************************/
 
 	// Store the old error value
@@ -398,7 +410,7 @@ void loop()
 	// Get the new error value via sensor_value
 	error = get_error(is_track_black);
 	// Compute the error rate
-	error_rate = error - error_last;
+	error_rate = (error - error_last) / period_time;
 
 	// If there is any exception while tracking the line, then use old error
 #ifdef TRACKING_EXCEPT_DETECT
@@ -450,7 +462,7 @@ void loop()
 
 
 	int output_kp = error_modify * K_P;
-	int output_kd = error_rate * K_D;
+	int output_kd = error_rate * K_D_f;
 	//Serial.println(output);
 	int speed;
 	if(abs(error_modify) < SLOW_BASE_THRESHOLD) {
@@ -461,8 +473,8 @@ void loop()
 
 
 	// NOTE: We don't use D controller,so that we dont put it on torque variable
-	int left_torque = speed + (int)output_kp;
-	int right_torque = speed - 1 * (int)output_kp;
+	int left_torque = speed + (int)output_kp + (int)output_kd;
+	int right_torque = speed -(int)output_kp -(int)output_kd ;
 
 
 	/********************* Modbus Control ************************/
@@ -533,6 +545,10 @@ void loop()
 	Serial.print(error_rate);
 	Serial.print('\t');
 	Serial.print(output_kp);
+	Serial.print('\t');
+	Serial.print(output_kd);
+	Serial.print('\t');
+	Serial.print((int)output_kp + (int)output_kd);
 	Serial.print('\t');
 	Serial.print(speed - (int)output_kp);
 	Serial.print('\t');
@@ -675,6 +691,9 @@ bool except_detect(bool _is_track_black) {
 	int sensor_sum;
 	sensor_sum = 0;
 	for (int i = 0; i < SENSOR_COUNT; i++) {
+
+		// Don't compare Mid-Sensor, It's wrong
+		if(i == 6) continue;
 		sensor_sum += sensor_value[i];
 	}
 
